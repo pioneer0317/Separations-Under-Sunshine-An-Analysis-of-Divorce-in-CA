@@ -1,0 +1,200 @@
+---
+title: "final project"
+author: "Hana Yerin Lim"
+date: "3/9/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(dplyr)
+library(ggridges)
+library(viridis)
+library(ggthemes)
+library(tidyr)
+library(RColorBrewer)
+library(wesanderson)
+library(ggrepel)
+data <- readr::read_csv("ca_div.csv")
+colnames(data) <- tolower(colnames(data))
+datacopy <- data
+datacopy <- datacopy[, -c(1, 2, 12,14,18)]
+```
+
+foodstmp, sex, marst, divinyr, race, citizen, language, educ, degfield,
+```{r}
+cols <- c("sex", "marst", "race", "citizen", "speakeng", "educ", "nchild")
+datacopy[cols] <- lapply(datacopy[cols], as.factor)
+
+levels(datacopy$race) <- c("White", "African\n American", "American\n Indian", "Asian/Pacific\n Islander", "Asian/Pacific\n Islander","Asian/Pacific\n Islander", "Other", "Multiracial", "Multiracial")
+levels(datacopy$educ) <- c("NA", "Elementary", "Middle", "High School", "High School","High School","High School",
+                           "College", "College", "College", "College", "Graduate")
+levels(datacopy$sex) <- c("male", "female")
+levels(datacopy$marst) <- c("Married", "Married", "Separated", "Divorced", "Widowed", "Single")
+levels(datacopy$speakeng) <- c("NA", "No", "Well", "Well", "Well", "Well", "No")
+levels(datacopy$nchild) <- c("0", "1", "2", "3+", "3+","3+","3+","3+","3+","3+")
+
+# datacopy$race[which(datacopy$race == "White" & datacopy$hispan != 0)] <- "Hispanic"
+# datacopy$race[which(datacopy$race == "Other" & datacopy$hispan != 0)] <- "Hispanic"
+datacopy$race[which(datacopy$hispan != 0)] <- "Hispanic"
+
+datacopy$race <- addNA(datacopy$race)
+levels(datacopy$race) <- c(levels(datacopy$race), "Hispanic")
+datacopy$race[is.na(datacopy$race)] <- "Hispanic"
+
+datacopy <- datacopy %>% mutate(child_binary = as.factor(ifelse(nchild == 0, "No Child", "Has Child"))) 
+datacopy$age_interval <- cut(datacopy$age, c(0, 19, 29, 39, 49, 59, 69, 79, 89, 99), labels = c("10s", "20s", "30s", "40s", "50s", "60s", "70s", "80s", "90s"), include.lowest = TRUE)
+
+datacopy$hhincome[which(datacopy$hhincome == 9999999)] <- NA
+datacopy$eldch[which(datacopy$eldch == 99)] <- NA 
+datacopy$yngch[which(datacopy$yngch == 99)] <- NA 
+datacopy$educ[which(datacopy$educ == "NA")] <- NA 
+datacopy$speakeng[which(datacopy$speakeng == "NA")] <- NA 
+
+# hisp <- datacopy %>% filter(race == 1 & hispan != 0)
+# a <- datacopy %>% filter(hispan != 0)
+# table(a$race)
+
+train <- datacopy[complete.cases(datacopy), ]
+train <- train %>% mutate(divorced = ifelse(train$marst == "Divorced", 1, 0))
+train$divorced <- as.factor(train$divorced)
+
+part <- train[sample(1:87659, size = 5000),]
+```
+
+```{r}
+library(caret)
+set.seed(999)
+i <- createDataPartition(part$divorced, p = 0.8, list = FALSE)
+train <- part[i, ]
+test <- part[-i, ]
+
+library(randomForest)
+rf <- randomForest(divorced ~ ., data = train, importance = TRUE, ntree = 2000, mtry = sqrt(ncol(train)), proximity = TRUE) 
+rf_pred <- predict(rf, test)
+postResample(rf_pred, test$divorced)
+rf_importance <- varImp(rf)
+imp_col <- rownames(rf_importance)[which(abs(rf_importance[ , 1]) > 10)]
+newtrain <- train[ , c(imp_col, "divorced")]
+newtest <- test[ , c(imp_col, "divorced")]
+# a <- newtrain[,-match(c("R_odds","B_odds"), names(newtrain))]
+
+rf_sec <- randomForest(divorced ~ ., data = newtrain, importance = TRUE, ntree = 2000, mtry = sqrt(ncol(newtrain)), proximity = TRUE) 
+rf_sec_pred <- predict(rf_sec, newtest)
+postResample(rf_sec_pred, newtest$divorced)
+```
+
+
+
+```{r}
+female <- datacopy %>% filter(sex == "female")
+datacopy %>% filter(marst == "Divorced") %>% group_by(age_interval) %>% summarise(ct = n()) %>% 
+ggplot(aes(x = age_interval, y = ct, fill = age_interval)) + geom_bar(stat = "identity") + 
+  geom_text(aes(label = ct), position = position_stack(vjust = 0.5), color = "gray") +
+  scale_fill_viridis(option = "A", discrete = TRUE) +
+  scale_color_viridis(option = "A", discrete = TRUE) +
+  ggtitle("Count of Divorce in California by Age Intervals") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+female %>% filter(marst == "Married" | marst == "Divorced") %>% group_by(marst, nchild) %>% summarise(count = n()) %>% mutate(prop = count / sum(count)) %>% 
+  ggplot(aes(x = reorder(marst, count), y = prop, fill = nchild)) + geom_bar(stat = "identity", color = "white") +
+  coord_polar("y", start = 0) + theme_void() +
+  geom_text(aes(label = paste(round(prop,3)*100, "%")), position = position_stack(vjust = 0.5)) + 
+  ggtitle("Percentage of number of child by marital status")
+```
+
+
+```{r, message=FALSE, warning=FALSE}
+library(plotly)
+female %>% filter(marst == "Married" | marst == "Divorced") %>% 
+  group_by(child_binary, marst) %>% summarise(ct = n()) %>% mutate(prop = ct / sum(ct)) %>% filter(marst == "Divorced") %>% 
+  ggplot(aes(x = child_binary, y = prop, fill = child_binary)) + geom_bar(stat = "identity", color = "white") + 
+  ggtitle("Percentage of Divorced Women by Child Status") +
+  scale_fill_manual("Child Status", values = c("#FFD100", "#2774AE")) + 
+  geom_text(aes(label = paste(round(prop, 3)*100, "%")), vjust = 1.5, color = c("Black", "White"), fontface = 2) + 
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ylab("Percentage") + xlab("Child Status")
+
+female %>% filter(marst == "Married" | marst == "Divorced") %>% 
+  group_by(child_binary, race, marst) %>% summarise(ct = n()) %>% mutate(prop = ct / sum(ct))  %>%  filter(marst == "Divorced") %>% 
+  ggplot(aes(x = race, y = prop, fill = child_binary)) + geom_bar(stat = "identity", color = "white", position = "dodge") + theme_few() + 
+  geom_text(aes(y = prop, label = paste(round(prop, 3)*100, "%")), size=3.2, position = position_dodge(width = 1), colour="black", vjust = -0.3) +
+  ggtitle("Percentage of Divorced Women by Demographic and Child Status") + 
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  scale_fill_manual("Child Status", values = c("#8BB8E8", "#003B5C")) + ylab("Percentage") + xlab("Race/Ethnicity")
+```
+
+```{r}
+cdages <- female %>% filter(eldch != 99 & yngch != 99) %>% filter(marst == "Married" | marst == "Divorced")
+cdages$child_mean_age <- (cdages$eldch + cdages$yngch)/2
+
+ggplot(cdages, aes(x = marst, y = child_mean_age, fill = marst)) + geom_boxplot() + geom_jitter(width = 0.1, alpha = 0.01) + coord_flip() +
+  geom_hline(yintercept = 18, color = "red") +
+  scale_fill_manual(values = c("#f7cb44ff", "#7e4e90ff")) + 
+  ggtitle("Average of Children Age by Mother's Marital Status") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+ggplot(cdages, aes(x = age_interval, y = yngch, fill = age_interval)) + geom_boxplot() + geom_jitter(width = 0.1, alpha = 0.01) + coord_flip() + geom_hline(yintercept = 18, color = "red") +
+  ggtitle("age of youngest child")
+ggplot(cdages, aes(x = age_interval, y = eldch, fill = age_interval)) + geom_boxplot() + geom_jitter(width = 0.1, alpha = 0.01) + coord_flip() + geom_hline(yintercept = 18, color = "red") +
+  ggtitle("age of oldest child") 
+```
+
+```{r}
+library(tidyr)
+# Remove/modify outliers 
+a <- female %>% filter(inctot != 9999999)
+lowerq <- quantile(a$inctot)[2]
+upperq <- quantile(a$inctot)[4]
+iqr = upperq - lowerq
+upper_outlier <- (iqr * 2) + upperq
+lower_outlier <- lowerq - (iqr * 2)
+a$inctot[a$inctot > upper_outlier] <- upper_outlier
+a$inctot[a$inctot < lower_outlier] <- lower_outlier
+a
+
+# Loess
+# a %>% filter(inctot != 9999999, marst == "Divorced") %>% 
+#   ggplot(aes(x = age, y = inctot)) + geom_point(aes(col = race)) + geom_smooth(method = "loess", se = F)
+
+# removed outliers 
+a %>% filter(inctot != 9999999, marst == "Married" | marst == "Divorced") %>%
+  ggplot(aes(x = marst, y = inctot, fill = race)) + geom_boxplot() + 
+  scale_fill_viridis("Demographic", option = "A", discrete = TRUE) +
+  scale_color_viridis(option = "A", discrete = TRUE) + 
+  ggtitle("Income comparison between married vs divorced women by race") +
+  theme_few() + 
+  theme(plot.title = element_text(hjust = 0.5)) +
+  xlab("Marital Status") + ylab("Income")
+
+# Best Visualization that shows clearest comparison
+a %>% filter(inctot != 9999999, marst == "Married" | marst == "Divorced") %>%
+  ggplot(aes(x = race, y = inctot, fill = marst)) + geom_boxplot() + 
+  ggtitle("Income comparison between married vs divorced women by race") +
+  scale_fill_manual("Marital Status", values = c("#f7cb44ff", "#7e4e90ff")) + 
+  coord_flip() +
+  theme_few() + 
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ylab("Income Total") + xlab("Race/Ethnicity")
+
+a %>% filter(inctot != 9999999, marst == "Married" | marst == "Divorced") %>% 
+  ggplot(aes(x = inctot, y = race, color = race, fill = race)) +
+  geom_density_ridges(alpha = 0.8, scale = 5) +
+  scale_fill_viridis(option = "A", discrete = TRUE) +
+  scale_color_viridis(option = "A", discrete = TRUE) + 
+  theme_few() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ylab("Income Total") + xlab("Race/Ethnicity")
+```
+
+

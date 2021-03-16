@@ -1,0 +1,252 @@
+---
+title: "Final Project EDA"
+author: "Hana Yerin Lim"
+date: "2/28/2021"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r, message=FALSE, warning=FALSE}
+library(dplyr)
+library(readr)
+data <- read_csv("CA_divorce.csv")
+full <- read_csv("usa_00002.csv")
+colnames(data) <- tolower(colnames(data))
+colnames(full) <- tolower(colnames(full))
+datacopy <- data
+fullcopy <- full
+```
+
+# rename factors, adding additional features
+```{r}
+datacopy$year <- as.factor(datacopy$year)
+datacopy$sex <- as.factor(datacopy$sex)
+levels(datacopy$sex) <- c("male", "female")
+datacopy$marrno <- as.factor(datacopy$marrno)
+datacopy$marst <- as.factor(datacopy$marst)
+datacopy$age_interval <- cut(datacopy$age, c(15, 19, 29, 39, 49, 59, 69, 79, 89, 99), labels = c("10s", "20s", "30s", "40s", "50s", "60s", "70s", "80s", "90s"), include.lowest = TRUE)
+levels(datacopy$marst) <- c("Married_spouse_present", "Married_spouse_absent", "Separated", "Divorced", "Widowed", "Single")
+divorce <- datacopy %>% filter(marst == "Divorced")
+divorce$age_interval <- cut(divorce$age, c(15, 19, 29, 39, 49, 59, 69, 79, 89, 99), labels = c("10s", "20s", "30s", "40s", "50s", "60s", "70s", "80s", "90s"), include.lowest = TRUE)
+divorce$age_interval <- as.factor(divorce$age_interval)
+```
+yrmarr not important because it is correlated with "age" 
+
+```{r}
+fullcopy$year <- as.factor(fullcopy$year)
+fullcopy$sex <- as.factor(fullcopy$sex)
+levels(fullcopy$sex) <- c("male", "female")
+fullcopy$marrno <- as.factor(fullcopy$marrno)
+fullcopy$marst <- as.factor(fullcopy$marst)
+levels(fullcopy$marst) <- c("Married_spouse_present", "Married_spouse_absent", "Separated", "Divorced", "Widowed", "Single")
+divorcef <- fullcopy %>% filter(marst == "Divorced")
+divorcef$age_interval <- cut(divorcef$age, c(15, 19, 29, 39, 49, 59, 69, 79, 89, 99), labels = c("10s", "20s", "30s", "40s", "50s", "60s", "70s", "80s", "90s"), include.lowest = TRUE)
+divorcef$age_interval <- as.factor(divorcef$age_interval)
+```
+
+```{r}
+memory.limit(2000000)
+newdf <- fullcopy %>% filter(year == 2019, statefip == 6)
+newdf$age_interval <- cut(newdf$age, c(15, 19, 29, 39, 49, 59, 69, 79, 89, 99), labels = c("10s", "20s", "30s", "40s", "50s", "60s", "70s", "80s", "90s"), include.lowest = TRUE)
+newdf$age_interval <- as.factor(newdf$age_interval)
+teen <- newdf %>% filter(age_interval == "10s")
+```
+
+# States 
+```{r}
+library(plotly)
+memory.limit(240000)
+nation <- divorcef %>% group_by(statefip, year) %>% summarise(count = n())
+#merged <- merge(divorcef, nation, by = c("statefip", "year"))
+
+
+nation$statefip <- as.factor(nation$statefip)
+levels(nation$statefip) <- c("AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA", "HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY")
+
+fig <- plot_ly(type = "choropleth", locations = nation$statefip, locationmode = "USA-states", z = nation$count, scope = 'usa', frame = nation$year) %>% 
+  layout(title = "2009-2019 US Divorce Count Trend", geo = list(
+  scope = 'usa',
+  projection = list(type = 'albers usa'),
+  showlakes = TRUE,
+  lakecolor = toRGB('white')
+)) %>% style(hoverlabel = list(bgcolor = 'white'))
+fig 
+
+# Sys.setenv("plotly_username" = "hanaylim")
+# Sys.setenv("plotly_api_key" = "ERfN7JPfQfV9QJlVnj0H")
+# api_create(fig, "Divorce in US 2019")
+# https://plotly.com/~hanaylim/3/
+```
+Barely any changes, most divorce in California 
+
+# California 
+## Which age group(s) gets divorced the most? 
+Age groups of 50s and 60s get the most divorce. Females tend to request/get(?) divorce more than men do. 
+```{r}
+library(ggplot2)
+#table(divorce$age)  #7486, 7487
+ggplot(divorce, aes(x = age_interval, fill = sex)) + geom_bar() + 
+  geom_text(stat = "count", aes(label = ..count..), position = position_stack(vjust = 0.5)) +
+  scale_fill_manual(values = c("dodgerblue", "palevioletred")) + 
+  ggtitle("Count of Divorce in California by Age Intervals") + 
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+## Three plots 
+```{r}
+library(wesanderson)
+library(plotly)
+# memory.limit(size=120000)
+divorcef %>% filter(statefip == 6) %>% group_by(year) %>% summarise(count = n()) %>% ggplot(aes(x = year, y = count, group = 1)) + geom_point() + geom_line() +
+  ggtitle("The divorce trend counts in California from 2009 - 2019")
+
+divorcef %>% filter(statefip == 6) %>% group_by(year, age_interval) %>% summarise(count = n()) %>% ggplot(aes(x = year, y = count, group = age_interval)) +
+  geom_point(aes(color = age_interval)) + geom_line(aes(color = age_interval)) + 
+  ggtitle("The divorce trend counts in California from 2009 - 2019 by age groups") 
+
+divorcef %>% filter(statefip == 6, age_interval == "10s") %>% group_by(year) %>% summarise(count = n()) %>% 
+  ggplot(aes(x = year, y = count, group = 1)) + geom_point() + geom_line() + 
+  ggtitle("The divorce trend of the age 15 - 19 in California from 2009 - 2019")
+
+teendivorce <- divorcef %>% filter(statefip == 6, age_interval == "10s")
+teendivorce$no_yr_marr <- as.numeric(as.character(teendivorce$year)) - teendivorce$yrmarr
+teendivorce$no_yr_marr <- as.factor(teendivorce$no_yr_marr)
+
+d <- teendivorce %>% group_by(no_yr_marr) %>% summarise(count = n()) %>% ungroup() %>% mutate(prop = count/sum(count))
+d$no_yr_marr <- as.factor(d$no_yr_marr)
+# ggplot(d, aes(x = "", y = prop, fill = no_yr_marr)) + geom_bar(stat = "identity", color = "white", width = 1) + 
+# coord_polar("y") + theme_void() + 
+# geom_text(aes(label = round(prop, 3)*100), position = position_stack(vjust = 0.5)) +
+# scale_fill_manual("Duration of marriage", values = wes_palette("Zissou1", n = 5)) + 
+# theme(axis.text = element_blank(), axis.ticks = element_blank(), panel.grid = element_blank()) + 
+# ggtitle("Marriage year duration for ages of 19 and under (%)")
+  
+pie <- plot_ly(d, labels = ~no_yr_marr, values = ~prop, type = 'pie',textposition = 'outside',textinfo = 'label+percent') %>%
+  layout(title = '2019 Duration of Teen Marriage in California (age 15-19) (%)',
+       xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+       yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE)) %>% 
+  layout(legend=list(title=list(text='<b> Duration of Marriage </b>')))
+pie 
+
+api_create(pie, "Duration of Teen marriage (age 15 - 19)")
+# https://chart-studio.plotly.com/~hanaylim/7/#/
+```
+1. The divorce rates of the age groups 50s and higher show increasing trend - The divorce rate for elderly couples is growing these days - why? 
+ - subjective reason: their children are grown-ups 
+2. Teen Marriage duration lasts very short (maximum 4 years, with 1 year being the most by 80%)
+
+# Teen marriage in 2019 
+```{r}
+teen %>% filter(marst != "Single") %>% group_by(marst) %>% summarise(count = n()) %>% mutate(prop = count / sum(count)) %>% 
+  ggplot(aes(x = "", y = count, fill = marst)) + geom_bar(stat = "identity", width = 1, color = "white") + 
+  coord_polar("y", start = 0) + theme_void() + 
+  geom_text(aes(label = paste0(round(prop, 3)*100, "%")), position = position_stack(vjust = 0.5)) +
+  ggtitle("2019 Age group of 15-19 Marital Status in California") 
+``` 
+
+\pagebreak
+
+# World Divorce data 
+```{r}
+library(readxl)
+library(dplyr)
+
+divorce <- read_excel("SF_3_1_Marriage_divorce_rates.xlsx", sheet = "DivorceRate", skip = 3)
+divorce <- divorce[-c(52:nrow(divorce)), -c(2:match("1991", names(divorce)))]
+
+values <- suppressWarnings(as.data.frame(lapply(divorce[, -1], as.numeric), check.names = FALSE))
+divorce <- cbind("Country" = divorce[,1], mutate(values, across(where(is.numeric), round, 3)))
+divorce
+```
+
+```{r}
+library(tidyverse)
+test <- divorce %>% gather(year, rate, `1992`:`2017`)
+a <- test[-which(is.na(test$rate)), ]
+```
+
+# Overall Trend in Divorce Rates  
+```{r, fig.height = 8, fig.width = 15}
+library(ggplot2)
+
+ggplot(data = a, aes(x = year, y = rate, fill = Country)) + geom_bar(stat = "identity") +
+  coord_flip() + 
+  ggtitle("Overall Trend in Divorce Rates") + 
+  theme(plot.title = element_text(size = 20, hjust = 0.5), legend.text = element_text(size = 9), legend.key.size = unit(0.01, 'cm')) + geom_text(size = 2.5, aes(label = rate), position = position_stack(vjust = 0.5))
+```
+
+# Trends of each country 
+```{r, fig.height= 10 , fig.width=15}
+# useful to see which countries have decreasing/increasing trends of divorce rates? 
+ggplot(a, aes(x = year, y = rate, group = Country)) + geom_point(aes(color = Country), show.legend = FALSE) +
+  geom_line(aes(color = Country), show.legend = FALSE) +
+  facet_wrap(~Country) + 
+  theme(plot.title = element_text(size = 20, hjust = 0.5), axis.text.x = element_text(angle = 90, size = 7), strip.text.x = element_text(size = 12)) + 
+  ggtitle("Trends of divorce rates in each country")
+```
+
+# Top 10 Countries with the highest divorce rate in 1992
+```{r}
+before <- divorce[, c(1, 2)]
+before_divorce <- before[-which(is.na(before$`1992`)), ] %>% arrange(desc(`1992`))
+before_divorce[1:10, ]
+
+before_plot <- ggplot(before_divorce[1:10, ], aes(x = reorder(Country, `1992`), y = `1992`, fill = `1992`)) + 
+  geom_bar(stat = "identity") + 
+  coord_flip() + 
+  xlab("Country") + ylab("Rates in 1992") +
+  geom_text(aes(label = `1992`), hjust = -0.15, size = 5) + 
+  ggtitle("Top 10 countries with the highest divorce rates in year 1992") + 
+  theme(plot.title = element_text(size = 20, hjust = 0.5), 
+        axis.text.x = element_text(size = 12), 
+        axis.text.y = element_text(size = 12),
+        legend.title = element_text(size = 13), 
+        legend.text = element_text(size = 13), 
+        legend.key.size = unit(1, 'cm')) + 
+  scale_fill_continuous(name = "Divorce Rate")
+
+ggplot(before_divorce[1:10, ], aes(x = reorder(Country, `1992`), y = `1992`, fill = `1992`)) + 
+  geom_bar(stat = "identity") + 
+  coord_flip() + 
+  xlab("Country") + ylab("Rates in 1992") +
+  geom_text(aes(label = `1992`), hjust = -0.15) + 
+  ggtitle("Top 10 countries with the highest divorce rates in year 1992") + 
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  scale_fill_continuous(name = "Divorce Rate")
+```
+
+# Top 10 Countries with the highest divorce rate in recent year (2017) 
+```{r}
+library(cowplot)
+recent <- divorce[, c(1, 27)]
+recent_divorce <- recent[-which(is.na(recent$`2017`)), ] %>% arrange(desc(`2017`))
+recent_divorce[1:10, ]
+
+recent_plot <- ggplot(recent_divorce[1:10, ], aes(x = reorder(Country, `2017`), y = `2017`, fill = `2017`)) + 
+  geom_bar(stat = "identity") + 
+  coord_flip() + 
+  xlab("Country") + ylab("Rates in 2017") +
+  geom_text(aes(label = `2017`), hjust = -0.15, size = 5) + 
+  ggtitle("Top 10 countries with the highest divorce rates in year 2017") + 
+  theme(plot.title = element_text(size = 20, hjust = 0.5), 
+        axis.text.x = element_text(size = 12), 
+        axis.text.y = element_text(size = 12),
+        legend.text = element_text(size = 13), 
+        legend.title = element_text(size = 13), 
+        legend.key.size = unit(1, 'cm')) + 
+  scale_fill_continuous(name = "Divorce Rate")
+```
+
+```{r,fig.height = 8, fig.width=20}
+plot_grid(before_plot, recent_plot)
+```
+
+is divorce related to the presence of children? 
+
